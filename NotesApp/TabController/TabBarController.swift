@@ -60,9 +60,6 @@ class TabBarController: UITabBarController {
         tabBar.layer.insertSublayer(roundLayer, at: 0)
         tabBar.itemWidth = width / 5
         tabBar.itemPositioning = .centered
-//        roundLayer.fillColor = UIColor(named: "tabBarBackground")?.cgColor
-//        tabBar.tintColor = UIColor.iconColor
-//        tabBar.unselectedItemTintColor = UIColor.unselectedIconColor
     }
     
     private func addTabBarColors() {

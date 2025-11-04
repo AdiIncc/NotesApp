@@ -6,17 +6,13 @@
 //
 
 import UIKit
+import CoreData
 
 class FavoritesViewController: UIViewController {
     
     let tableView = UITableView()
     var topView: TopView!
-    var favoriteNotes: [Notes] = []
-    var allNotes: [Notes] = [] {
-        didSet {
-            filterFavoriteNotes()
-        }
-    }
+    var fetchedResultsController: NSFetchedResultsController<NoteEntity>!
     private weak var delegate: NotesTableViewCellDelegate?
     
     override func viewDidLoad() {
@@ -24,47 +20,41 @@ class FavoritesViewController: UIViewController {
         view.backgroundColor = .systemBackground
         topView = addTopView(title: "Favorites")
         setupTableView()
-        NotificationCenter.default.addObserver(self, selector: #selector(editNoteFromFavorites(_:)), name: NSNotification.Name("editNote"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(editNoteFromFavorites(_:)), name: NSNotification.Name("createNote"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(receiveInitialNotes(_:)), name: .initialNotesLoad, object: nil)
+        setupFetchedResultsController()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        NotificationCenter.default.post(name: .initialNotesLoadRequest, object: nil)
-    }
-    
-    @objc func receiveInitialNotes(_ notification: Notification) {
-        if let initialNotes = notification.userInfo?["allNotes"] as? [Notes] {
-            self.allNotes = initialNotes
+        do {
+            try fetchedResultsController.performFetch()
+        } catch {
+            print(error.localizedDescription)
         }
     }
     
-    func filterFavoriteNotes() {
-        favoriteNotes = allNotes.filter { $0.isFavourite }
-        tableView.reloadData()
+    func setupFetchedResultsController() {
+        let fetchRequest: NSFetchRequest<NoteEntity> = NoteEntity.fetchRequest()
+        
+        let sortDescriptor = NSSortDescriptor(key: "createdAt", ascending: false)
+        fetchRequest.sortDescriptors = [sortDescriptor]
+        
+        let predicate = NSPredicate(format: "isFavourite == YES AND isTrashed == NO")
+        fetchRequest.predicate = predicate
+        
+        fetchedResultsController = NSFetchedResultsController(
+            fetchRequest: fetchRequest,
+            managedObjectContext: CoreDataManager.shared.context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        fetchedResultsController.delegate = self
+        
+        do {
+            try fetchedResultsController.performFetch()
+        } catch {
+            print("Eroare la fetch favorite: \(error.localizedDescription)")
+        }
     }
-    
-    @objc func editNoteFromFavorites(_ notification: Notification) {
-        var wasModified = false
-        if let newNote = notification.userInfo?["newNote"] as? Notes {
-            allNotes.append(newNote)
-            wasModified = true
-        }
-        if let updateNote = notification.userInfo?["updateNote"] as? Notes {
-            if let index = allNotes.firstIndex(where: { $0.id == updateNote.id }) {
-                allNotes[index] = updateNote
-            } else {
-                allNotes.append(updateNote)
-            }
-            wasModified = true
-        }
-        if wasModified {
-            filterFavoriteNotes()
-        }
-    }
-    
-
 }
 //MARK: - TableView setup
 extension FavoritesViewController {
@@ -91,41 +81,96 @@ extension FavoritesViewController {
 //MARK: - TableView Delegate and DataSource
 extension FavoritesViewController: UITableViewDelegate, UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return favoriteNotes.count
+        return fetchedResultsController.sections?[section].numberOfObjects ?? 0
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: NotesTableViewCell.reuseIdentifier, for: indexPath) as? NotesTableViewCell else {
             return UITableViewCell()
         }
-        let note = favoriteNotes[indexPath.row]
+        let note = fetchedResultsController.object(at: indexPath)
         cell.configure(with: note, delegate: self)
         return cell
     }
     
+    func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        if editingStyle == .delete {
+            let noteToUnfavorite = fetchedResultsController.object(at: indexPath)
+            
+            noteToUnfavorite.isFavourite = false
+            CoreDataManager.shared.saveContext()
+        }
+    }
+    
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        let selectedNote = favoriteNotes[indexPath.row]
-        self.editNote(id: selectedNote.id)
+        let selectedNote = fetchedResultsController.object(at: indexPath)
+        guard let noteId = selectedNote.id else { return }
+        self.editNote(id: noteId)
     }
 }
 
 //MARK: - Conforms to NotesTableViewCellDelegate
 extension FavoritesViewController: NotesTableViewCellDelegate {
     func addFavorites(id: String, added: Bool) {
-        if let index = allNotes.firstIndex(where: { $0.id == id }) {
-            allNotes[index].isFavourite = added
-            filterFavoriteNotes()
-            let updatedNote = allNotes[index]
-            NotificationCenter.default.post(name: NSNotification.Name("editNote"), object: self, userInfo: ["updateNote" : updatedNote])
+        let fetchRequest: NSFetchRequest<NoteEntity> = NoteEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+        do {
+            let result = try CoreDataManager.shared.context.fetch(fetchRequest)
+            if let noteToUpdate = result.first {
+                noteToUpdate.isFavourite = added
+                CoreDataManager.shared.saveContext()
+            }
+        } catch {
+            print("Eroare la actualizarea favorite din FavoritesVC: \(error.localizedDescription)")
         }
     }
     func editNote(id: String) {
-        let note = allNotes.first { note in
-            note.id == id
+        let fetchRequest: NSFetchRequest<NoteEntity> = NoteEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", id)
+        do {
+            let result = try CoreDataManager.shared.context.fetch(fetchRequest)
+            if let noteEntityToEdit = result.first {
+                let editTaskVC = AddNotesViewController(notes: noteEntityToEdit)
+                present(editTaskVC, animated: true)
+            }
+        } catch {
+            print("Eroare la fetch pentru editare în FavoritesVC: \(error.localizedDescription)")
         }
-        guard let note = note else { return }
-        let editTaskVC = AddNotesViewController(notes: note)
-        present(editTaskVC, animated: true)
     }
+}
+
+extension FavoritesViewController: NSFetchedResultsControllerDelegate {
+    func controllerWillChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+            tableView.beginUpdates()
+        }
+        
+        func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+            tableView.endUpdates()
+        }
+        
+        func controller(_ controller: NSFetchedResultsController<NSFetchRequestResult>, didChange anObject: Any, at indexPath: IndexPath?, for type: NSFetchedResultsChangeType, newIndexPath: IndexPath?) {
+            
+            switch type {
+            case .insert:
+                if let newIndexPath = newIndexPath {
+                    tableView.insertRows(at: [newIndexPath], with: .fade)
+                }
+            case .delete:
+                if let indexPath = indexPath {
+                    tableView.deleteRows(at: [indexPath], with: .fade)
+                }
+            case .update:
+                if let indexPath = indexPath {
+                    tableView.reloadRows(at: [indexPath], with: .fade)
+                }
+            case .move:
+                if let indexPath = indexPath, let newIndexPath = newIndexPath {
+                    tableView.deleteRows(at: [indexPath], with: .fade)
+                    tableView.insertRows(at: [newIndexPath], with: .fade)
+                }
+            @unknown default:
+                tableView.reloadData()
+            }
+        }
 }

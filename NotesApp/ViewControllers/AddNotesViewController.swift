@@ -135,7 +135,7 @@ class AddNotesViewController: UIViewController {
             presentError(title: "Save error", message: "The note and the title should be at least 4 characters long.")
             return
         }
-        if let notes = notes {
+        if let notes = self.notes {
             notes.title = noteTitle
             notes.caption = notesCaption
             CoreDataManager.shared.saveContext()

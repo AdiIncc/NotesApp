@@ -57,9 +57,11 @@ final class ThemeManager {
     
     var current: AppTheme {
         get {
-            AppTheme(rawValue: UserDefaults.standard.integer(forKey: userDefaultsKey)) ?? .system
+            let rawValue = UserDefaults.standard.integer(forKey: userDefaultsKey)
+            return AppTheme(rawValue: rawValue) ?? .system
         }
         set {
+            guard current.rawValue != newValue.rawValue else { return }
             UserDefaults.standard.set(newValue.rawValue, forKey: userDefaultsKey)
             apply(newValue)
             NotificationCenter.default.post(name: .appThemeChanged, object: nil)

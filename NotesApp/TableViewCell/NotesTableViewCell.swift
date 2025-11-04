@@ -54,11 +54,13 @@ class NotesTableViewCell: UITableViewCell {
     var delegate: NotesTableViewCellDelegate?
     private var notes: Notes!
     
-    private var dataFormatter: DateFormatter{
+    private var dateFormatter: DateFormatter{
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         return dateFormatter
     }
+    
+    var noteId: String?
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -129,22 +131,31 @@ class NotesTableViewCell: UITableViewCell {
         cellView.addSubview(dataLabel)
     }
 //MARK: - Cell configure
-    func configure(with note: Notes, delegate: NotesTableViewCellDelegate?) {
-        titleLabel.text = note.title
-        contentLabel.text = note.caption
-        favoritesImageView.image = note.isFavourite ? UIImage(systemName: "star.fill") : UIImage(systemName: "star")
-        dataLabel.text = dataFormatter.string(from: note.createdAt)
+    func configure(with noteEntity: NoteEntity, delegate: NotesTableViewCellDelegate?) {
+        titleLabel.text = noteEntity.title
+        contentLabel.text = noteEntity.caption
+        favoritesImageView.image = noteEntity.isFavourite ? UIImage(systemName: "star.fill") : UIImage(systemName: "star")
+        if let date = noteEntity.createdAt {
+            dataLabel.text = dateFormatter.string(from: date)
+        } else {
+            dataLabel.text = "Uknown Date"
+        }
         let tap = UITapGestureRecognizer(target: self, action: #selector(addedToFavorites))
         favoritesImageView.addGestureRecognizer(tap)
         favoritesImageView.isUserInteractionEnabled = true
-        self.notes = note
+        if let noteId = noteEntity.id {
+            self.noteId = noteId
+        }
         self.delegate = delegate
     }
     
     @objc func addedToFavorites() {
-        notes.isFavourite.toggle()
-        delegate?.addFavorites(id: notes.id, added: notes.isFavourite)
-        favoritesImageView.image = notes.isFavourite ? UIImage(systemName: "star.fill") : UIImage(systemName: "star")
+        guard let id = self.noteId else {
+            print("Error getting ID")
+            return
+        }
+        let isCurrentFavourite = !self.favoritesImageView.image!.isEqual(UIImage(systemName: "star"))
+        delegate?.addFavorites(id: id, added: !isCurrentFavourite)
     }
     
 }
